@@ -57,7 +57,7 @@ def getData(table_name, bounds):
         cursor.execute('SELECT * FROM %s WHERE (lat BETWEEN %s AND %s) and (lon BETWEEN %s AND %s)' % table_name, bounds.lat_min, bounds.lat_max, bounds.lon_min, bounds.lon_max)
         return cursor.fetchall()
     else:
-        reader = csv.reader(open(table_name + '.csv', 'rb'))
+        reader = csv.reader(open('test_data/%s.csv' % table_name, 'rb'))
         return list(reader)
 
 def GetUSGSFlat():
