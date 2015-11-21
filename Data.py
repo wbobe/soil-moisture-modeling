@@ -18,7 +18,7 @@ if pg_database is not None and pg_user is not None:
 def get_bounded_data(table_name, bounds):
   if 'conn' in globals():
       cursor = conn.cursor()
-      cursor.execute('SELECT * FROM %s WHERE (lat BETWEEN %s AND %s) and (lon BETWEEN %s AND %s)' % table_name, bounds.lat_min, bounds.lat_max, bounds.lon_min, bounds.lon_max)
+      cursor.execute('SELECT * FROM %s WHERE (lat BETWEEN %s AND %s) and (lon BETWEEN %s AND %s)' % (table_name, bounds['lat_min'], bounds['lat_max'], bounds['lon_min'], bounds['lon_max']))
       return cursor.fetchall()
   else:
       reader = csv.reader(open('test_data/%s.csv' % table_name, 'rb'))
