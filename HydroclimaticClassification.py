@@ -13,6 +13,7 @@ from dateutil.parser import parse
 import datetime as dt
 import numpy as np
 import os
+import Data
 
 _1st_quadrant = {'S1':{'Var': 'max_day_q', 'Cut': 95, True: 'S2', False: 'S3'},
                  'S2':{'Var': 'max_day_p', 'Cut': 91, True: 'LWC', False: 'LPC'},
@@ -43,11 +44,11 @@ _quadrant_splits = {'S1': {'Var': 'seasonality', 'Cut': 0.2564, True: 'S2', Fals
 
 def GetUSGSFlat():
     """Returns a flat USGS file containing streamflow time series data"""
-    return USGS_flat
-    
+    Data.get_bounded_data(os.environ.get('USGS_TABLE_NAME'), bounds)
+
 def GetNLDASFlat():
     """Returns a flat NLDAS file containing precipitation and potential evap."""
-    return NLDAS_flat
+    Data.get_bounded_data(os.environ.get('NLDAS_TABLE_NAME'), bounds)
     
 def GenerateAverageByDayOfYear(df, date_col, variable_col):
     """Given a dataframe (df), a (date_col) containing date information in the format
@@ -111,3 +112,8 @@ def DetermineClassification(class_tree, access_key, seasonality, arid_ind, max_d
        return DetermineClassification(class_tree, next_split, seasonality, arid_ind, max_day_p, max_day_q)         
     else:
        return next_split
+       
+# Example call to getData
+bounds = {'lat_min':'-81', 'lat_max':'-82', 'lon_min':'-81', 'lon_max':'-82'}
+nldas2_box = Data.get_bounded_data(os.environ.get('USGS_TABLE_NAME'), bounds)
+print(nldas2_box)
