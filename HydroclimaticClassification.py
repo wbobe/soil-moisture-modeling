@@ -64,7 +64,7 @@ def GenerateAverageByDayOfYear(df, date_col, variable_col):
 def CalculateSeasonality(precip_time_series):
     """Calculate seasonality from a precipitation time series according to
     methodology from Walsh & Lawler (1981), modified by Coopersmith et al (2012)"""
-    L, tot_precip, mean_precip = len(precip_time_series), np.sum(precip_time_series), np.mean(precip_time_series)
+    tot_precip, mean_precip = np.sum(precip_time_series), np.mean(precip_time_series)
     return sum([abs(p - mean_precip)/tot_precip for p in precip_time_series])
     
 def GetMaxIndex(time_series):
