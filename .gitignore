@@ -1,2 +1,2 @@
 .env
-*.csv
+test_data/
