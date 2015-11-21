@@ -5,7 +5,7 @@ import os
 try:
     import psycopg2
 except:
-    print 'psycopg2 is unavailable, no database access will be possible'
+    print('psycopg2 is unavailable, no database access will be possible')
     
 # Initialize the database connection, if possible
 pg_database = os.environ.get('POSTGRES_CONNECTION_DATABASE')
