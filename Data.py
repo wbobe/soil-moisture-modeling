@@ -1,7 +1,7 @@
 import csv
 import os
 
-# Import psycopg2 if possible, otherwise getData will only work local .csv files
+# Import psycopg2 if possible, otherwise data access will only be available from local files
 try:
     import psycopg2
 except:
