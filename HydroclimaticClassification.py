@@ -44,11 +44,11 @@ _quadrant_splits = {'S1': {'Var': 'seasonality', 'Cut': 0.2564, True: 'S2', Fals
 
 def GetUSGSFlat():
     """Returns a flat USGS file containing streamflow time series data"""
-    Data.getData(os.environ.get('USGS_TABLE_NAME'), bounds)
+    Data.get_bounded_data(os.environ.get('USGS_TABLE_NAME'), bounds)
 
 def GetNLDASFlat():
     """Returns a flat NLDAS file containing precipitation and potential evap."""
-    Data.getData(os.environ.get('NLDAS_TABLE_NAME'), bounds)
+    Data.get_bounded_data(os.environ.get('NLDAS_TABLE_NAME'), bounds)
     
 def GenerateAverageByDayOfYear(df, date_col, variable_col):
     """Given a dataframe (df), a (date_col) containing date information in the format
@@ -115,5 +115,5 @@ def DetermineClassification(class_tree, access_key, seasonality, arid_ind, max_d
        
 # Example call to getData
 bounds = {'lat_min':'-81', 'lat_max':'-82', 'lon_min':'-81', 'lon_max':'-82'}
-nldas2_box = Data.getData(os.environ.get('USGS_TABLE_NAME'), bounds)
+nldas2_box = Data.get_bounded_data(os.environ.get('USGS_TABLE_NAME'), bounds)
 print(nldas2_box)
