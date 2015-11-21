@@ -1,6 +1,11 @@
-import psycopg2
 import csv
 import os
+
+# Import psycopg2 if possible, otherwise getData will only work local .csv files
+try:
+    import psycopg2
+except:
+    print 'psycopg2 is unavailable, no database access will be possible'
     
 # Initialize the database connection, if possible
 pg_database = os.environ.get('POSTGRES_CONNECTION_DATABASE')
