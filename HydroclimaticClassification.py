@@ -12,6 +12,7 @@ and return relevant information for hydroclimatic classification.
 from dateutil.parser import parse
 import datetime as dt
 import numpy as np
+import pandas as pd
 import os
 import Data
 
@@ -41,6 +42,9 @@ _4th_quadrant = {'S1':{'Var': 'max_day_q', 'Cut': 103, True: 'S2', False: 'S3'},
 _quadrant_splits = {'S1': {'Var': 'seasonality', 'Cut': 0.2564, True: 'S2', False: 'S3'},
                     'S2': {'Var': 'max_day_p', 'Cut': 152, True: _1st_quadrant, False: _2nd_quadrant}, 
                     'S3': {'Var': 'arid_ind', 'Cut': 1.9171, True: _3rd_quadrant, False: _4th_quadrant}}
+
+_NLDAS_columns = ['Date','Lat','Lon','Precip','ShortWaveFlux','LongWaveFlux']
+_USGS_columns = ['USGS_code','Date','Q']
 
 def GetUSGSFlat():
     """Returns a flat USGS file containing streamflow time series data"""
@@ -113,7 +117,23 @@ def DetermineClassification(class_tree, access_key, seasonality, arid_ind, max_d
     else:
        return next_split
        
+def CalculateFourIndicators(nldas2_box, usgs_box):
+    smoothed_daily_precip = SmoothCircularTimeSeries(GenerateAverageByDayOfYear(nldas2_box, 'Date', 'Precip'),30)
+    seasonality, max_day_p = CalculateSeasonality(smoothed_daily_precip), GetMaxIndex(smoothed_daily_precip)         
+    arid_ind = 1.2 #NOT IMPLEMENTED.
+    smoothed_daily_runoff = SmoothCircularTimeSeries(GenerateAverageByDayOfYear(usgs_box, 'Date', 'Q'),30)     
+    max_day_q = GetMaxIndex(smoothed_daily_runoff) 
+    return seasonality, arid_ind, max_day_p, max_day_q
+    
 # Example call to getData
 bounds = {'lat_min':'-81', 'lat_max':'-82', 'lon_min':'-81', 'lon_max':'-82'}
-nldas2_box = Data.get_bounded_data(os.environ.get('USGS_TABLE_NAME'), bounds)
-print(nldas2_box)
+#nldas2_box = Data.get_bounded_data(os.environ.get('USGS_TABLE_NAME'), bounds)
+nldas2_box = pd.read_csv(os.path.join('test_data','nldas2_hourly_2015_10_21_07_32_39.csv'), 
+                        header = None)
+nldas2_box.columns = _NLDAS_columns
+
+usgs_box = pd.read_csv(os.path.join('test_data','usgs_gauge_2015_10_21_16_19_53.csv'),
+                       header = None)
+usgs_box.columns = _USGS_columns
+seasonality, arid_ind, max_day_p, max_day_q = CalculateFourIndicators(nldas2_box, usgs_box)
+site_class = DetermineClassification(_quadrant_splits, 'S1', seasonality, arid_ind, max_day_p, max_day_q)
