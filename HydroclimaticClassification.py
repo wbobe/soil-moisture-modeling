@@ -46,6 +46,22 @@ _quadrant_splits = {'S1': {'Var': 'seasonality', 'Cut': 0.2564, True: 'S2', Fals
 _NLDAS_columns = ['Date','Lat','Lon','Precip','ShortWaveFlux','LongWaveFlux']
 _USGS_columns = ['USGS_code','Date','Q']
 
+def GetSimilarSensorMap():
+    """When calibrated models within the particular class are unavailable, certain
+    classes are sufficiently similar to warrant inclusion.  This function returns a hard-coded
+    dictionary of which classes are pseudo-substitutes.  The classes themselves are the keys."""
+    return {'LWC': ['LPC','LJ'], 'LPC': ['LWC','LJ','LPM'], 'LPM':['LPC','LBMH','LBMS'],
+            'LBMH': ['LBMS','LPM','LPQ','IHM'], 'LBMS':['LBMH','LPQ','LPM'], 'LPQ':['LBMH','LBMS','LPM'],
+            'LJ':['LPC','LWC','LPM'], 'XHD':['IVD','XVM'], 'ITC':['ISQJ','ISCJ','ISCB'],
+            'IHM':['XTM','XVM','LBMH'], 'XVM':['XTM','IHM','IVD'], 'XTM':['XVM','IHM'],
+            'IVD':['XVM','XHD'], 'ITF':[], 'ISCJ':['ISCB','ISQJ','ITC'], 'ISCB':['ISCJ','ITC','XSC'],
+            'XSC':['ISCB','ISCJ','XSMB'], 'XSMB':['XSC','XADB'], 'ISQJ':['ITC','ISCJ','IACJ'],
+            'XADB':['XSMB'], 'IACJ':['XACJ','ISCJ','ISQJ','IAF'], 'XACJ':['IACJ','XADB'], 'IAQ':['IACJ','IAF'], 'IAF':['IAQ','IACJ']}
+            
+def GetSimilarTexturesMap():
+    return {1:[2,3], 2:[1,3], 3:[1,2,6,7], 4:[5,6,8,9], 5:[4], 6:[3,4,7,8,9], 7:[3,6,9,10],
+            8:[4,8,9], 9:[4,6,7,8,10,12], 10:[7,9,12], 11:[8,9,12], 12:[7,8,9], 13:[]}
+
 def GetUSGSFlat():
     """Returns a flat USGS file containing streamflow time series data"""
     Data.get_bounded_data(os.environ.get('USGS_TABLE_NAME'), bounds)

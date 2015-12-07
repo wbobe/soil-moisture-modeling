@@ -11,6 +11,7 @@ import numpy as np
 import math
 from scipy.stats.stats import pearsonr
 import GeneticAlgorithms_for_SM as GA
+import HydroclimaticClassification as HydroClass
 
 _param_file_name = "ValidSites_USCRN_SCAN_ARS.csv"
 """These values are default assumptions required to calibrate system memory"""
@@ -20,7 +21,13 @@ _interval = 50 #incremental number of hours to consider when calibrating a sys m
 _thresh = 0.97 #how similar must the shorter beta series be to the longer one to be acceptable?
 """These values are for calibration of the sinusoidal loss function"""
 _grow_start, _grow_end = 100, 300 #days of year, between which we'll attempt to estimate SM
+_wrong_hydro_class_fac, _wrong_texture_fac, wrong_topo_fac = 2, 2, 1 #how much are exact matches preferred?
+_min_heuristic_score = 0.5 #how poorly can a site perform in validation before it is excluded
+_max_similar_sites = 10 #how many sites can we use to gather parameters for a given location?
+_worst_match_flex_fac = 1.2 #ensures that weaker matches still play some role
 
+def GetSimilarClassesAndTextures():
+    return HydroClass.GetSimilarSensorMap(), HydroClass.GetSimilarTexturesMap()
 
 def GetFilesInDirectory(dir_path):
 	"""Given a directory path (dir_path), return all files contained within that directory, as a list.  
@@ -107,12 +114,47 @@ def GetParameters(parameter_file, site_index):
     row = parameter_file.loc[site_index]    
     return [row.Vert_Shift, row.Amplitude, row.Horiz_Shift, row.Porosity, row.Res_SM, row.Drainage, row.n]
 
-def GetSimilarSensors(parameter_file, lat, lon, hydroclimatic_class, topo_class, texture_class):
+def GetSimilarSensors(parameter_file, lat, lon, hydroclimatic_class, topo_class, texture_class,
+                      similar_class_map, similar_texture_map):
     """Given a (parameter_file), the relevant (lat) and (lon) where estimates are required, the (hydroclimatic_class),
     (topo_class), and (texture_class), return the indices of parameter_file for site whose parameters can be used to
-    generate estimates.  Additionally, return a weight associated with each set of parameters."""        
-    #THIS FUNCTION HAS NOT YET BEEN WRITTEN
-    return sensor_indices, sensor_weights  
+    generate estimates.  Additionally, return a weight associated with each set of parameters.
+    (similar_class_map) and (similar_texture_map) define which other classes and textures are sufficiently similar."""        
+    acceptable_textures = [texture_class] + similar_texture_map[texture_class]
+    acceptable_hydro_classes = [hydroclimatic_class] + similar_class_map[hydroclimatic_class]
+    #acceptable_topo_classes = [topo_class] + similar_topo_map[topo_class]...not implemented    
+    sub_parameter_file = parameter_file.loc[parameter_file.Texture.isin(acceptable_textures)]
+    sub_parameter_file = sub_parameter_file.loc[sub_parameter_file.Class.isin(acceptable_hydro_classes)]
+    sub_parameter_file = sub_parameter_file[sub_parameter_file.Heuristic > _min_heuristic_score]
+    sub_parameter_file['Dist'] = [math.sqrt((s_lat - lat)**2 + (s_lon - lon)**2) for s_lat, s_lon in 
+                                  zip(sub_parameter_file.Lat, sub_parameter_file.Lon)]   
+    sub_parameter_file = CalculateSiteSimilarityHeuristic(sub_parameter_file, hydroclimatic_class, topo_class, texture_class)                          
+    if len(sub_parameter_file) > _max_similar_sites: sub_parameter_file = sub_parameter_file[:_max_similar_sites]
+    return CalculateSiteWeights(sub_parameter_file)
+    
+def CalculateSiteWeights(sub_parameter_file):
+    """Given the smaller list of similar sites (sub_parameter_file) to be used for producing soil moisture estimates, calculate
+    an additional column determining the weight of each individual site's parameters in producing estimates."""  
+    max_sim_val = np.max(sub_parameter_file.Similarity)*_worst_match_flex_fac
+    weights = [max_sim_val - s for s in sub_parameter_file.Similarity]
+    tot_weight = np.sum(weights)
+    sub_parameter_file['Weight'] = [w/tot_weight for w in weights]
+    return sub_parameter_file
+    
+def CalculateSiteSimilarityHeuristic(similar_sites, hydroclimatic_class, topo_class, texture_class):
+    """Given a data frame, (similar_sites), the (hydroclimatic_class), (topo_class), and (texture_class)
+    associated with the location where predictions are required, return the similiarity_score for 
+    each site deemed a possible match."""
+    #Topo class is not implemented in this version...
+    similarity_score = []    
+    for hydro_class, texture, topo, distance, heuristic in zip(similar_sites.Class, similar_sites.Texture, 
+        similar_sites.Topo, similar_sites.Dist, similar_sites.Heuristic):
+        hydro_class_fac = 1 if hydro_class == hydroclimatic_class else _wrong_hydro_class_fac
+        texture_class_fac = 1 if texture == texture_class else _wrong_texture_fac
+        #topo_class_fac = 1 if topo == topo_class else _wrong_topo_fac       
+        similarity_score.append(hydro_class_fac*texture_class_fac*distance*(1-heuristic)**2)
+    similar_sites['Similarity'] = similarity_score     
+    return similar_sites.sort('Similarity')
 
 def GetSystemMemory(default_triad, p_Series, z, long_time, interval, thresh, times):
 	"""How far back must we look before we are confident that antecedent rain conditions are minimally relevant?"""
@@ -161,6 +203,7 @@ if __name__ == "__main__":
     ###Example soil moisture estimation procedure
     parameter_file = GetFlatFile("sensor_information", _param_file_name)
     parameter_list = GetParameters(parameter_file, 23) #random row, number 23
+    similar_class_map, similar_texture_map = GetSimilarClassesAndTextures()    
     SiteData = GetFlatFile('sensor_information', 'TestSM.csv')[3000:10000]
     SiteData = CalculateSMEstimates(SiteData, parameter_list, 5, 'SM', 'Precip', 'DOY')
     
@@ -168,3 +211,5 @@ if __name__ == "__main__":
     SiteData['Invalid'] = GenerateInvalidSeq(SiteData, 'SM', 'Precip', 'DOY')
     SiteData['BetaSeries'] = [0 for i in range(len(SiteData))]
     parameter_list = CalibrateSMParameters(SiteData, 5, 'SM', 'Precip', 'DOY')
+    
+    
