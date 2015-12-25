@@ -230,7 +230,33 @@ def EstimateFromWeights(sm_estimates, weights):
         if sm > 0: 
             valid_sms.append(sm); weights_of_valid_sm.append(sm)
     total_weight = np.sum(weights_of_valid_sm)
-    return np.sum([sm * w/total_weight for sm,w in zip(valid_sms, weights_of_valid_sm)])                
+    return np.sum([sm * w/total_weight for sm,w in zip(valid_sms, weights_of_valid_sm)])      
+
+def EvaluateModelPerformance(sm_observed, sm_modelled, max_sm, min_sm):
+	"""Given two vectors for observed and modelled soil moisture, (sm_observed) and (sm_modelled), 
+	crop them such that we consider only pairs where both values are non-negative. Then, return 
+	the correlation between the two vectors, the RMSE between the two vectors, the optimal offset, 
+	the optimal gain, and the RMSE using the offset alone, then the gain and offset in tandem.
+	Finally, using the range of soil moisture (max_sm) and (min_sm), return the heuristic
+	for overall performance."""
+	sm_obs, sm_model = [],[] 
+	for obs, model in zip(sm_observed, sm_modelled):
+		if(obs > 0 and model > 0):
+			sm_obs.append(obs); sm_model.append(model)
+	rho, RMSE_base = GetCorr_and_RMSE(sm_obs, sm_model)
+	offset = np.mean(sm_model) - np.mean(sm_obs) #best offset, with no gain involved
+	rho, RMSE_off = GetCorr_and_RMSE(sm_obs + offset, sm_model)
+	xi = np.array(sm_obs); A,y = np.array([xi, np.ones(len(sm_obs))]), np.array(sm_model) #prepping the regression
+	if len(sm_obs) < 2: return(-1,-1,-1,-1,-1,-1)
+	w = np.linalg.lstsq(A.T,y)[0] #the gain, the offset as the two returned elements of this function
+	if abs(w[0]) >= 100 or abs(w[1]) >= 100: return(-1,-1,-1,-1,-1,-1) #fixes the degenerate case when SM from AMSR doesn't vary...thus no rho
+	line = w[0]*xi+w[1];  rho, RMSE_all = GetCorr_and_RMSE(line,y)
+	heuristic = rho - (RMSE_base)/(max_sm - min_sm)     
+	return (rho, RMSE_base, RMSE_off, RMSE_all, offset, w, heuristic)          
+ 
+def GetCorr_and_RMSE(v1, v2):
+	"""given two vectors (v1) and (v2), return their correlation and their RMSE"""
+	return pearsonr(v1,v2)[0], math.sqrt(np.mean([(a-b)**2 for a,b in zip(v1,v2)]))
 
 if __name__ == "__main__":   
     #users input lat/lon, from there we should theoretically know: 
@@ -260,4 +286,8 @@ if __name__ == "__main__":
     examples_to_improve = site_data[-10:] #just the last ten examples as a demo
     historical_examples = site_data[500:-10] #grabbing a hypothetical training set
     improved_predictions = ML.KNN(examples_to_improve, historical_examples, _ind_vars, _dep_var)
+    
+    #Evaluate a model's performance against observations
+    (rho, RMSE_base, RMSE_off, RMSE_all, offset, w, heuristic) = EvaluateModelPerformance(site_data.SM, 
+        site_data.SMest_5, np.max(site_data.SM), np.min(site_data.SM))
     
