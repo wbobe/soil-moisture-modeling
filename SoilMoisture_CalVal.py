@@ -6,12 +6,14 @@ Created on Tue Dec  1 09:47:08 2015
 Functions herein allow calibration and validation of soil moisture models
 """
 import os
+import sys
 import pandas as pd
 import numpy as np
 import math
 from scipy.stats.stats import pearsonr
 import GeneticAlgorithms_for_SM as GA
 import HydroclimaticClassification as HydroClass
+import ML_compendium as ML
 
 _param_file_name = "ValidSites_USCRN_SCAN_ARS.csv"
 """These values are default assumptions required to calibrate system memory"""
@@ -21,10 +23,15 @@ _interval = 50 #incremental number of hours to consider when calibrating a sys m
 _thresh = 0.97 #how similar must the shorter beta series be to the longer one to be acceptable?
 """These values are for calibration of the sinusoidal loss function"""
 _grow_start, _grow_end = 100, 300 #days of year, between which we'll attempt to estimate SM
-_wrong_hydro_class_fac, _wrong_texture_fac, wrong_topo_fac = 2, 2, 1 #how much are exact matches preferred?
+_wrong_hydro_class_fac, _wrong_texture_fac, _wrong_topo_fac = 2, 2, 1 #how much are exact matches preferred?
 _min_heuristic_score = 0.5 #how poorly can a site perform in validation before it is excluded
 _max_similar_sites = 10 #how many sites can we use to gather parameters for a given location?
 _worst_match_flex_fac = 1.2 #ensures that weaker matches still play some role
+"""Necessary for SM estimation"""
+_depth = 5
+_ind_vars = ['BetaSeries','SMest_' + str(_depth), 'DOY']
+_dep_var = 'SM'
+
 
 def GetSimilarClassesAndTextures():
     return HydroClass.GetSimilarSensorMap(), HydroClass.GetSimilarTexturesMap()
@@ -101,7 +108,7 @@ def CalculateSMEstimates(SiteData, parameters, z, sm_col, precip_col, DOY_col):
     The list, (parameters), contains, in order: [vertical_shift, amplitude, horizontal_shift(days), porosity(%), 
     residual_soil_moisture(%), drainage_rate, system_memory(hrs)]"""
     EtaSeries = AddEtaSeries(parameters[:3], SiteData[DOY_col])
-    print("Generating 'beta series'"); BetaSeries = GetBeta(SiteData[precip_col], EtaSeries, z, parameters[-1])		
+    BetaSeries = GetBeta(SiteData[precip_col], EtaSeries, z, parameters[-1])		
     SMSeries = GetSMSeries(BetaSeries, parameters[3:6])
     SiteData['BetaSeries'] = BetaSeries; SiteData['SMest_' + str(z)] = [s/100 for s in SMSeries]
     SiteData['ErrorSeq'] = [est - in_situ for est, in_situ in zip(SiteData['SMest_' + str(z)], SiteData[sm_col])]        
@@ -197,19 +204,60 @@ def GenerateInvalidSeq(SiteData, sm_col, p_col, DOY_col):
     for sm, p, DOY in zip(SiteData[sm_col], SiteData[p_col], SiteData[DOY_col]):
     #criteria that renders a timestamp unusable
         invalid_seq.append(True if (not (DOY <= _grow_end and DOY >= _grow_start) or sm <= 0 or p < 0) else False) 
-    return invalid_seq    
+    return invalid_seq   
     
-if __name__ == "__main__":    
-    ###Example soil moisture estimation procedure
+def ProduceSMFromSimilarSensors(similar_sensors, lat, lon, depth, site_data):
+    """Given knowledge of the location at which soil moisture estimates are requested (lat), (lon), along
+    with the (similar_sensors) whose parameters can be used to produce soil moisture estimates, return an
+    estimate using the weighted similarities of all suitably similar sensors."""
+    #site_data = GetLocalPrecipHistory(lat,lon) #THIS NEEDS TO BE POSSIBLE
+    sm_estimates, weights = [],[] 
+    for ind in similar_sensors.index:
+        v, a, h = similar_sensors.loc[ind]['Vert_Shift'], similar_sensors.loc[ind]['Vert_Shift'], similar_sensors.loc[ind]['Vert_Shift']
+        por, res, drain = similar_sensors.loc[ind]['Porosity'], similar_sensors.loc[ind]['Res_SM'], similar_sensors.loc[ind]['Drainage']
+        n, w = similar_sensors.loc[ind]['n'], similar_sensors.loc[ind]['Weight']
+        print("Estimate from parameters of:", similar_sensors.loc[ind]['Network'], similar_sensors.loc[ind]['Site_Code'], similar_sensors.loc[ind]['Site_Info'])
+        recent_site_data = site_data[(n*-1 - 1):] #just enough to generate a SM estimate
+        recent_site_data = CalculateSMEstimates(recent_site_data, [v,a,h,por,res,drain,n], depth, 'SM', 'Precip', 'DOY')
+        sm_estimates.append(list(recent_site_data['SMest_' + str(depth)])[-1]); weights.append(w)
+    return EstimateFromWeights(sm_estimates, weights)            
+        
+def EstimateFromWeights(sm_estimates, weights):
+    """Given a list of (sm_estimates) and the corresponding (weights) associated with
+    each site, produce a weighted estimate of soil moisture at the given location."""
+    valid_sms, weights_of_valid_sm = [], []    
+    for sm, w in zip(sm_estimates, weights):
+        if sm > 0: 
+            valid_sms.append(sm); weights_of_valid_sm.append(sm)
+    total_weight = np.sum(weights_of_valid_sm)
+    return np.sum([sm * w/total_weight for sm,w in zip(valid_sms, weights_of_valid_sm)])                
+
+if __name__ == "__main__":   
+    #users input lat/lon, from there we should theoretically know: 
+    #hydroclimatic_class, topo_class, and texture_class
+    null, lat, lon = sys.argv 
+    lat, lon, hydroclimatic_class, topo_class, texture_class = 32, -110,'IAQ', 1, 2 #FOR TEST PURPOSES
+    
+    ###Example soil moisture estimation procedure for a single site with one est of parameters
     parameter_file = GetFlatFile("sensor_information", _param_file_name)
     parameter_list = GetParameters(parameter_file, 23) #random row, number 23
+    site_data = GetFlatFile('sensor_information', 'TestSM.csv')[3000:10000]
+    site_data = CalculateSMEstimates(site_data, parameter_list, 5, 'SM', 'Precip', 'DOY') #for a single site
+
+    #...using multiple sensors that are 'similar'
     similar_class_map, similar_texture_map = GetSimilarClassesAndTextures()    
-    SiteData = GetFlatFile('sensor_information', 'TestSM.csv')[3000:10000]
-    SiteData = CalculateSMEstimates(SiteData, parameter_list, 5, 'SM', 'Precip', 'DOY')
+    similar_sensors = GetSimilarSensors(parameter_file, lat, lon, hydroclimatic_class, topo_class, texture_class,
+                      similar_class_map, similar_texture_map)    
+    sm_estimate = ProduceSMFromSimilarSensors(similar_sensors, lat, lon, _depth, site_data)
     
     ###Example calibration of soil moisture parameters
-    SiteData['Invalid'] = GenerateInvalidSeq(SiteData, 'SM', 'Precip', 'DOY')
-    SiteData['BetaSeries'] = [0 for i in range(len(SiteData))]
-    parameter_list = CalibrateSMParameters(SiteData, 5, 'SM', 'Precip', 'DOY')
+    site_data['Invalid'] = GenerateInvalidSeq(site_data, 'SM', 'Precip', 'DOY')
+    site_data['BetaSeries'] = [0 for i in range(len(site_data))]
+    parameter_list = CalibrateSMParameters(site_data, 5, 'SM', 'Precip', 'DOY')
     
+    #Example improvement of SM estimates using ML: 
+    #(requires reading in the dummy file and estimating SM)
+    examples_to_improve = site_data[-10:] #just the last ten examples as a demo
+    historical_examples = site_data[500:-10] #grabbing a hypothetical training set
+    improved_predictions = ML.KNN(examples_to_improve, historical_examples, _ind_vars, _dep_var)
     
