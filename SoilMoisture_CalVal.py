@@ -5,6 +5,7 @@ Created on Tue Dec  1 09:47:08 2015
 
 Functions herein allow calibration and validation of soil moisture models
 """
+import Env
 import os
 import sys
 import pandas as pd
@@ -15,7 +16,6 @@ import GeneticAlgorithms_for_SM as GA
 import HydroclimaticClassification as HydroClass
 import ML_compendium as ML
 
-_param_file_name = "ValidSites_USCRN_SCAN_ARS.csv"
 """These values are default assumptions required to calibrate system memory"""
 _default_triad = [0.015, 0, 0] #for estimation of system memory, a flat evapotranspiration rate
 _long_beta_time = 2000 #maximum possible number of hours to consider precip history
@@ -261,12 +261,13 @@ if __name__ == "__main__":
     #users input lat/lon, from there we should theoretically know: 
     #hydroclimatic_class, topo_class, and texture_class
     null, lat, lon = sys.argv 
+    Env.AddEnvironmentVariables() #gather environment variables
     lat, lon, hydroclimatic_class, topo_class, texture_class = 32, -110,'IAQ', 1, 2 #FOR TEST PURPOSES
     
     ###Example soil moisture estimation procedure for a single site with one est of parameters
-    parameter_file = GetFlatFile("sensor_information", _param_file_name)
+    parameter_file = GetFlatFile(os.environ['path_to_local_sensors'], os.environ['param_file_name'])
     parameter_list = GetParameters(parameter_file, 23) #random row, number 23
-    site_data = GetFlatFile('sensor_information', 'TestSM.csv')[3000:10000]
+    site_data = GetFlatFile(os.environ['path_to_local_sensors'], os.environ['sample_soil_moisture_file'])[3000:10000]
     site_data = CalculateSMEstimates(site_data, parameter_list, 5, 'SM', 'Precip', 'DOY') #for a single site
 
     #...using multiple sensors that are 'similar'
