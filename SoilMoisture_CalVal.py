@@ -32,7 +32,6 @@ _depth = 5
 _ind_vars = ['BetaSeries','SMest_' + str(_depth), 'DOY']
 _dep_var = 'SM'
 
-
 def GetSimilarClassesAndTextures():
     return HydroClass.GetSimilarSensorMap(), HydroClass.GetSimilarTexturesMap()
 
