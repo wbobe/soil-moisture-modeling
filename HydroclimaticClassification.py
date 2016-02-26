@@ -61,6 +61,9 @@ def GetSimilarSensorMap():
 def GetSimilarTexturesMap():
     return {1:[2,3], 2:[1,3], 3:[1,2,6,7], 4:[5,6,8,9], 5:[4], 6:[3,4,7,8,9], 7:[3,6,9,10],
             8:[4,8,9], 9:[4,6,7,8,10,12], 10:[7,9,12], 11:[8,9,12], 12:[7,8,9], 13:[]}
+            
+def GetSimilarTopoMap():
+    return {0:[1], 1:[0], 2:[], 3:[4], 4:[3]}
 
 def GetUSGSFlat():
     """Returns a flat USGS file containing streamflow time series data"""

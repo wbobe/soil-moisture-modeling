@@ -16,6 +16,8 @@ import GeneticAlgorithms_for_SM as GA
 import HydroclimaticClassification as HydroClass
 import ML_compendium as ML
 import LocalSensors as local
+import SpatialProjectionFunctions as SPF
+import Precip
 
 """These values are default assumptions required to calibrate system memory"""
 _default_triad = [0.015, 0, 0] #for estimation of system memory, a flat evapotranspiration rate
@@ -34,7 +36,7 @@ _ind_vars = ['BetaSeries','SMest_' + str(_depth), 'DOY']
 _dep_var = 'SM'
 
 def GetSimilarClassesAndTextures():
-    return HydroClass.GetSimilarSensorMap(), HydroClass.GetSimilarTexturesMap()
+    return HydroClass.GetSimilarSensorMap(), HydroClass.GetSimilarTexturesMap(), HydroClass.GetSimilarTopoMap()
 
 def GetFilesInDirectory(dir_path):
 	"""Given a directory path (dir_path), return all files contained within that directory, as a list.  
@@ -122,16 +124,17 @@ def GetParameters(parameter_file, site_index):
     return [row.Vert_Shift, row.Amplitude, row.Horiz_Shift, row.Porosity, row.Res_SM, row.Drainage, row.n]
 
 def GetSimilarSensors(parameter_file, lat, lon, hydroclimatic_class, topo_class, texture_class,
-                      similar_class_map, similar_texture_map):
+                      similar_class_map, similar_texture_map, similar_topo_map):
     """Given a (parameter_file), the relevant (lat) and (lon) where estimates are required, the (hydroclimatic_class),
     (topo_class), and (texture_class), return the indices of parameter_file for site whose parameters can be used to
     generate estimates.  Additionally, return a weight associated with each set of parameters.
     (similar_class_map) and (similar_texture_map) define which other classes and textures are sufficiently similar."""        
     acceptable_textures = [texture_class] + similar_texture_map[texture_class]
     acceptable_hydro_classes = [hydroclimatic_class] + similar_class_map[hydroclimatic_class]
-    #acceptable_topo_classes = [topo_class] + similar_topo_map[topo_class]...not implemented    
+    acceptable_topo_classes = [topo_class] + similar_topo_map[topo_class]
     sub_parameter_file = parameter_file.loc[parameter_file.Texture.isin(acceptable_textures)]
     sub_parameter_file = sub_parameter_file.loc[sub_parameter_file.Class.isin(acceptable_hydro_classes)]
+    sub_parameter_file = sub_parameter_file.loc[sub_parameter_file.Topo.isin(acceptable_topo_classes)]
     sub_parameter_file = sub_parameter_file[sub_parameter_file.Heuristic > _min_heuristic_score]
     sub_parameter_file['Dist'] = [math.sqrt((s_lat - lat)**2 + (s_lon - lon)**2) for s_lat, s_lon in 
                                   zip(sub_parameter_file.Lat, sub_parameter_file.Lon)]   
@@ -214,62 +217,71 @@ def GetParameters_and_Weight_of_CalSensor(ind, similar_sensors):
     n, w = similar_sensors.loc[ind]['n'], similar_sensors.loc[ind]['Weight']
     return v,a,h,por,res,drain,n,w    
     
-def ProduceSMFromSimilarCalSensors(similar_sensors, lat, lon, depth, site_data):
-    """Given knowledge of the location at which soil moisture estimates are requested (lat), (lon), along
-    with the (similar_sensors) whose parameters can be used to produce soil moisture estimates, return an
+def ProduceSMFromSimilarCalSensors(similar_sensors, depth, site_data):
+    """Given (similar_sensors) whose parameters can be used to produce soil moisture estimates, return an
     estimate using the weighted similarities of all suitably similar sensors."""
-    #site_data = GetLocalPrecipHistory(lat,lon) #THIS NEEDS TO BE POSSIBLE
     sm_estimates, weights = [],[] 
     for ind in similar_sensors.index:
         v,a,h,por,res,drain,n,w = GetParameters_and_Weight_of_CalSensor(ind, similar_sensors)
         print("Estimate from parameters of:", similar_sensors.loc[ind]['Network'], similar_sensors.loc[ind]['Site_Code'], similar_sensors.loc[ind]['Site_Info'])
         recent_site_data = site_data[(n*-1 - 1):] #just enough to generate a SM estimate
-        recent_site_data = CalculateSMEstimates(recent_site_data, [v,a,h,por,res,drain,n], depth, 'SM', 'Precip', 'DOY')
+        recent_site_data = CalculateSMEstimates(recent_site_data, [v,a,h,por,res,drain,n], depth, 'SM', 'P', 'DOY')
         sm_estimates.append(list(recent_site_data['SMest_' + str(depth)])[-1]); weights.append(w)
     return sm_estimates, weights    
 
-def ProduceSMEstimateUsingInSituAndModel(similar_cal_sensors, similar_local_sensors, lat, lon, depth, site_data):
-    if len(similar_local_sensors) == 0: #no available local sensors
-        sm_estimates, weights = ProduceSMFromSimilarCalSensors(similar_cal_sensors, lat, lon, depth, site_data)
-    else:
-        sm_estimates, weights = ProduceSMFromSimilarLocalSensors(similar_cal_sensors, similar_local_sensors, lat, lon, depth, site_data)
+def ProduceSMEstimateUsingInSituAndModel(similar_cal_sensors, local_dict, northing, easting, depth, site_data, current_time):
+    sm_estimates = []    
+    if len(local_dict) > 0: #available local sensors
+        sm_estimates, weights = ProduceSMFromSimilarLocalSensors(similar_cal_sensors, local_dict, northing, easting, depth, site_data, current_time)    
+    if len(sm_estimates) == 0: #no available local sensors
+        sm_estimates, weights = ProduceSMFromSimilarCalSensors(similar_cal_sensors, depth, site_data)
     return EstimateFromWeights(sm_estimates, weights)       
 
-def ProduceSMFromSimilarLocalSensors(similar_cal_sensors, similar_local_sensors, lat, lon, depth, site_data):
+def ProduceSMFromSimilarLocalSensors(similar_cal_sensors, local_dict, northing, easting, depth, site_data, current_time):
     local_sensor_inv_dist_sqs, estimates_by_sensor = [],[]
-    most_recent_P_at_site = local.GetMostRecentDatetime(site_data, 'Year', 'Month', 'Day', 'Hour')     
-    for sensor in similar_local_sensors: #for each local sensor whose value ought to be considered
-        local_sensor_inv_dist_sqs.append(1/((lat - sensor['lat'])**2 + (lon - sensor['lon'])**2))
-        theta_i_tstar_s = sensor['last_SM'] 
-        estimates_by_model, model_weights = [],[]
-        hrs_between_p_and_sm = local.CalculateHoursBetween(sensor['last_P_time'], sensor['last_SM_time']) #most recent P vs most recent SM at insitu location
-        for ind in similar_cal_sensors.index:
-            v,a,h,por,res,drain,n,w = GetParameters_and_Weight_of_CalSensor(ind, similar_cal_sensors)            
-            hrs_between_site_p_and_sensor_p = max(local.CalculateHoursBetween(most_recent_P_at_site, sensor['last_P_time']),0) #hours between most recent P at the site where we need an estimate and the P at the in situ sensor (should be zero)
-            recent_site_data = site_data[(n*-1 -1 -hrs_between_site_p_and_sensor_p):(hrs_between_site_p_and_sensor_p*-1 if hrs_between_site_p_and_sensor_p > 0 else None)]            
-            recent_site_data = CalculateSMEstimates(recent_site_data, [v,a,h,por,res,drain,n], depth, 'SM', 'Precip', 'DOY')
-            theta_i_t_m = list(recent_site_data['SMest_' + str(depth)])[-1]
-            new_site_data = local.very_deep_copy(recent_site_data) #to be manipulated in functions safely
-            new_site_data = ReplaceSitePrecipWSensorPrecip(new_site_data, sensor['precip_hist'], hrs_between_p_and_sm, 'Precip', n)
-            new_site_data = CalculateSMEstimates(new_site_data, [v,a,h,por,res,drain,n], depth, 'SM', 'Precip', 'DOY')
-            theta_i_tstar_m = list(new_site_data['SMest_' + str(depth)])[-1]
-            estimates_by_model.append(theta_i_tstar_m - theta_i_t_m); model_weights.append(w)
-        model_driven_adjustment = EstimateFromWeights(estimates_by_model, model_weights)
-        estimates_by_sensor.append(theta_i_tstar_s + model_driven_adjustment)
+    for sensor in local_dict.keys(): #for each local sensor whose value ought to be considered
+        insitu = local_dict[sensor]; local_network = sensor.split("_")[0]
+        local_sensor_inv_dist_sqs.append(1/((northing - insitu['northing'])**2 + (easting - insitu['easting'])**2))
+        SM_ind = Precip.GetLastPrecipInd(insitu['site_data'], current_time, 'Year', 'DOY')        
+        theta_i_tstar_s = insitu['site_data']['SM'][SM_ind] if SM_ind > 0 else -1
+        #print('LOCAL INSITU: ***', theta_i_tstar_s, " *** Calibrated from ", local_network)
+        if theta_i_tstar_s > 0:
+            estimates_by_model, model_weights = [],[]   
+            for ind in similar_cal_sensors.index:
+                #print('Using cal sensor: ', similar_cal_sensors.Site_Code[ind])
+                v,a,h,por,res,drain,n,w = GetParameters_and_Weight_of_CalSensor(ind, similar_cal_sensors); cal_network = similar_cal_sensors.Network[ind]            
+                recent_site_data = site_data[(n*-1 -1):]; calc_depth = (2 if 'SCAN' in cal_network else 5)
+                #print('Parameters:', v,a,h,por,res,drain,n, "Depth: ", calc_depth, "Site-P (mm): ", np.sum(recent_site_data.P))                
+                adj_site_data = Precip.AdjustPrecipUnit(recent_site_data, 'P', (1/25.4 if 'SCAN' in cal_network else 1))
+                #print('Site-P, adjusted:', np.sum(adj_site_data.P))                
+                adj_site_data = CalculateSMEstimates(adj_site_data, [v,a,h,por,res,drain,n], calc_depth, 'SM', 'P', 'DOY')
+                theta_i_t_m = list(adj_site_data['SMest_' + str(calc_depth)])[-1];
+                #print('Model estimate using site precip:', theta_i_t_m)
+                new_site_data = local.very_deep_copy(recent_site_data) #to be manipulated in functions safely
+                new_site_data = ReplaceSitePrecipWSensorPrecip(new_site_data, insitu['site_data']['P'][:SM_ind], 'P', n)
+                #print('LocalSensor-P:', np.sum(new_site_data.P))
+                adj_fac = 25.4 if ('SCAN' in local_network and 'SCAN' not in cal_network) else 1
+                adj_site_data = Precip.AdjustPrecipUnit(new_site_data, 'P', adj_fac)
+                #print('LocalSensor-P:', np.sum(adj_site_data.P), "Depth:", calc_depth)
+                adj_site_data = CalculateSMEstimates(adj_site_data, [v,a,h,por,res,drain,n], calc_depth, 'SM', 'P', 'DOY')
+                theta_i_tstar_m = list(adj_site_data['SMest_' + str(calc_depth)])[-1]
+                #print('Model estimate using local sensor precip:', theta_i_tstar_m)
+                estimates_by_model.append(theta_i_t_m - theta_i_tstar_m); model_weights.append(w)
+            model_driven_adjustment = EstimateFromWeights(estimates_by_model, model_weights)
+            estimates_by_sensor.append(theta_i_tstar_s + model_driven_adjustment)
     return estimates_by_sensor, local_sensor_inv_dist_sqs                  
         
-def ReplaceSitePrecipWSensorPrecip(new_site_data, p_series, time_gap, p_col, n):
+def ReplaceSitePrecipWSensorPrecip(new_site_data, p_series, p_col, n):
     """Given a (recent_site_data) frame from the location where SM estimates are desired, 
     return new_site_data that replaces the precipitation series (p_col) at the location itself with the
     precipitation series from the sensor (p_series) for the most recent (n) + 1 time stamps.
     This is the amount of data required for the diagnostic soil moisture equation.
-    The (time_gap) refers to the hours elapsed in the precip series since the last SM reading.  
     Missing precip data will be auto-filled with zeros (THIS FEATURE COULD BE CHANGED AT A LATER DATE.)."""
     L = len(new_site_data)
-    if len(p_series) > n + time_gap: #enough data.
-       new_site_data[p_col] = list(new_site_data[p_col][0:(L-n)]) + p_series[-(n+time_gap):((time_gap*-1) if time_gap > 0 else None)]
+    if len(p_series) > n: #enough data.
+       new_site_data[p_col] = list(new_site_data[p_col][0:(L-n)]) + list(p_series[-(n):])
     else: #not enough data        
-       missing_p = [0 for i in range(n + time_gap - len(p_series))] 
+       missing_p = [0 for i in range(n - len(p_series))] 
        new_site_data[p_col] = missing_p + p_series      
     return new_site_data
         
@@ -312,20 +324,21 @@ def GetCorr_and_RMSE(v1, v2):
 if __name__ == "__main__":   
     #users input lat/lon, from there we should theoretically know: 
     #hydroclimatic_class, topo_class, and texture_class
-    null, lat, lon = sys.argv 
+    null, northing, easting = sys.argv 
     Env.AddEnvironmentVariables() #gather environment variables
-    lat, lon, hydroclimatic_class, topo_class, texture_class = 32, -110,'IAQ', 1, 2 #FOR TEST PURPOSES
-    
+    northing, easting, zone, hydroclimatic_class, topo_class, texture_class = 3510000, 590000, '12R', 'IAQ', 2, 6 #FOR TEST PURPOSES
+        
+    lat, lon = SPF.UTMtoLL(23, northing, easting, zone)
     ###Example soil moisture estimation procedure for a single site with one est of parameters
     parameter_file = GetFlatFile(os.environ['path_to_local_sensors'], os.environ['param_file_name'])
-    parameter_list = GetParameters(parameter_file, 23) #random row, number 23
+    parameter_list = GetParameters(parameter_file, 124) #random row, number 124 is in WG
     site_data = GetFlatFile(os.environ['path_to_local_sensors'], os.environ['sample_soil_moisture_file'])[3000:10000]
     site_data = CalculateSMEstimates(site_data, parameter_list, 5, 'SM', 'Precip', 'DOY') #for a single site
 
     #...using multiple sensors that are 'similar'
-    similar_class_map, similar_texture_map = GetSimilarClassesAndTextures()    
+    similar_class_map, similar_texture_map, similar_topo_map = GetSimilarClassesAndTextures()    
     similar_cal_sensors = GetSimilarSensors(parameter_file, lat, lon, hydroclimatic_class, topo_class, texture_class,
-                      similar_class_map, similar_texture_map)    
+                      similar_class_map, similar_texture_map, similar_topo_map)    
     sm_estimates, weights = ProduceSMFromSimilarCalSensors(similar_cal_sensors, lat, lon, _depth, site_data)
     sm_estimate = EstimateFromWeights(sm_estimates, weights)
     

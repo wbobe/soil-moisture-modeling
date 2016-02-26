@@ -319,6 +319,27 @@ def PlotHAND(HAND_classes, min_northing, min_easting, square_size, nrows, ncols,
 	plt.savefig(os.path.join(path_to_images, sub_name + '.png'))
 	plt.close()	#to avoid using additional RAM					
 	return None	
+ 
+def GetHANDClassAtPoint(HAND_classes, northing, easting, min_northing, min_easting, cellsize, nrows, ncols):
+    """Given an np.array (HAND_classes), specifications of the (min_northing), (min_easting), the number of rows and columns,
+    (nrows) and (ncols), and (cellsize) of that array, return the class associated with the (northing), (easting) given."""
+    max_northing, max_easting = min_northing + (nrows-1)*cellsize, min_easting + (ncols-1)*cellsize 
+    if northing < min_northing:
+        print("Northing of", northing, "is below the southern boundary of", min_northing); northing = min_northing
+    if easting < min_easting:
+        print("Easting of", easting, "is beyond the western boundary of", min_easting); easting = min_easting
+    if northing > max_northing:
+        print("Northing of", northing, "is above the northern boundary of", max_northing); northing = max_northing
+    if easting > max_easting:
+        print("Easting of", easting, "is beyond the eastern boundary of", max_easting); easting = max_easting
+    HAND_row, HAND_col = int(round((max_northing - northing)/cellsize, 0)), int(round((easting - min_easting)/cellsize, 0))
+    return int(HAND_classes[HAND_row, HAND_col])    
+    
+def GetHandFileInfo(HAND_name):
+    """HAND classification files are traditionally named as 'HAND_classes_minnorthing_mineasting_cellsize_nrows_ncols',
+    this function should return min_northing, min_easting, cellsize, nrows, and ncols"""
+    split_name = HAND_name.split('_')
+    return [int(i) for i in split_name[2:]]    
 
 if __name__ == "__main__":
     null, southern_edge, northern_edge, western_edge, eastern_edge, aggregation_fac, sub_name = sys.argv
@@ -343,7 +364,7 @@ if __name__ == "__main__":
     drainage_network = DefineDrainageNetwork(drainage_areas, LDD, nrows, ncols, _min_drainage) #which points are on the flow path?
     network_elevs = GetDrainNetworkElevs(drainage_network, collapsed_DEM)
     nearest_drainage = Generate_all_I_i_j(nrows, ncols, LDD, _flow_dirs, drainage_network, collapsed_DEM, _max_sink_search_dist)
-    HAND_estimates = CalculateHAND(nrows, ncols, DEM, network_elevs, nearest_drainage)
+    HAND_estimates = CalculateHAND(nrows, ncols, collapsed_DEM, network_elevs, nearest_drainage)
     HAND_classes, thresholds = ClassifyHAND(HAND_estimates, nrows, ncols, _HAND_thresholds)
     PlotHAND(HAND_classes, _southern_edge, _western_edge, cellsize, nrows, ncols, _cmap, 
              GetLegendCaptions(thresholds, _unit, np.max(HAND_estimates)), 
