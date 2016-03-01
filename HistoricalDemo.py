@@ -57,7 +57,7 @@ def ProduceSiteData(local_precip_df, current_time, min_hours):
             
 def GenerateEstimatesAtAllPoints(historical_requests, all_calibrated_sites, HAND_classes, texture_classes, output_file_name, depth, min_hours,
     last_time, num_hours, HAND_min_northing, HAND_min_easting, HAND_cellsize, HAND_nrows, HAND_ncols, hydro_class, zone, precip_dict):
-    old_northing, old_easting, local_dict, precip_site_series, sm_estimates = -9999,-9999, {}, {}, []
+    old_northing, old_easting, local_dict, precip_site_series, sm_estimates, topos, textures = -9999,-9999, {}, {}, [], [], []
     for northing, easting, year, DOY in zip(historical_requests.Northing, historical_requests.Easting, historical_requests.Year, historical_requests.DOY):
         print("Northing:", northing, "Easting:", easting, "Year:", year, "DOY:", DOY)        
         if (northing != old_northing or easting != old_easting): #we need to re-determine texture/topo info
@@ -68,12 +68,17 @@ def GenerateEstimatesAtAllPoints(historical_requests, all_calibrated_sites, HAND
             similar_cal_sensors = SM.GetSimilarSensors(all_calibrated_sites, lat, lon, hydro_class, topo_class, texture_class,
                       similar_class_map, similar_texture_map, similar_topo_map) #we can use their parameters
             similar_local_sensors = Local.ChooseLocalSensors(similar_cal_sensors, northing, easting, zone) #we can actually consider their insitu values
-        local_dict = Local.GenerateLocalSensorDictionary(similar_local_sensors, os.environ['path_to_local_sensors'], local_dict)
+            local_dict = Local.GenerateLocalSensorDictionary(similar_local_sensors, os.environ['path_to_local_sensors'], local_dict)
+            print("Texture:", texture_class, "Topo:", topo_class, "Models:", [s for s in similar_cal_sensors.Site_Code], "Locals:", [s for s in similar_local_sensors.Site_Code])
         current_time = Local.ConvertYearDOY_to_Datetime(year, DOY); location_key = str(northing) + "_" + str(easting)
         if location_key not in precip_site_series.keys():
             precip_site_series[location_key] = Precip.ReturnPrecipitationSeries_InSitu(northing, easting, precip_dict, 'P', last_time, num_hours)
         site_data = ProduceSiteData(precip_site_series[location_key], current_time, min_hours)    
         sm_estimates.append(SM.ProduceSMEstimateUsingInSituAndModel(similar_cal_sensors, local_dict, northing, easting, depth, site_data, current_time))
+        topos.append(topo_class); textures.append(texture_class)        
+        old_northing, old_easting = northing, easting #update the values
+    historical_requests['SMest_' + str(depth)] = sm_estimates; historical_requests['Topo'] = topos; historical_requests['Texture'] = textures 
+    historical_requests.to_csv(os.path.join(os.environ['path_to_historical_requests'], 'HistoricalResults', output_file_name + '.csv'), index = False)
     return sm_estimates    
 
 if __name__ == "__main__":
@@ -83,6 +88,7 @@ if __name__ == "__main__":
     similar_class_map, similar_texture_map, similar_topo_map = SM.GetSimilarClassesAndTextures()    
     historical_requests, all_calibrated_sites, HAND_classes, texture_classes = GetBackgroundInformation(historical_request_file_name,
                                                                                     output_file_name, HAND_name, texture_json_name)
+    historical_requests = historical_requests.sort(['Northing','Easting']) #avoids re-gathering information
     local_precip_sensors = all_calibrated_sites[all_calibrated_sites.Site_Code.isin(_precip_sensors)]                                                                                
     last_time, num_hours = GetHistoricalTemporalScale(historical_requests, 'Year', 'DOY', _min_hours)
     precip_dict = Precip.GeneratePrecipSeriesDictionary(local_precip_sensors, 'P', 'Year', 'DOY', num_hours, last_time, os.environ['path_to_local_sensors'])

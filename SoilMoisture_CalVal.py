@@ -238,38 +238,68 @@ def ProduceSMEstimateUsingInSituAndModel(similar_cal_sensors, local_dict, northi
     return EstimateFromWeights(sm_estimates, weights)       
 
 def ProduceSMFromSimilarLocalSensors(similar_cal_sensors, local_dict, northing, easting, depth, site_data, current_time):
-    local_sensor_inv_dist_sqs, estimates_by_sensor = [],[]
+    local_sensor_inv_dist_sqs, estimates_by_sensor, cal_sensor_info = [],[],{}
     for sensor in local_dict.keys(): #for each local sensor whose value ought to be considered
         insitu = local_dict[sensor]; local_network = sensor.split("_")[0]
         local_sensor_inv_dist_sqs.append(1/((northing - insitu['northing'])**2 + (easting - insitu['easting'])**2))
         SM_ind = Precip.GetLastPrecipInd(insitu['site_data'], current_time, 'Year', 'DOY')        
         theta_i_tstar_s = insitu['site_data']['SM'][SM_ind] if SM_ind > 0 else -1
-        #print('LOCAL INSITU: ***', theta_i_tstar_s, " *** Calibrated from ", local_network)
+        print('LOCAL INSITU: ***', theta_i_tstar_s, " *** Calibrated from ", local_network, sensor)
         if theta_i_tstar_s > 0:
             estimates_by_model, model_weights = [],[]   
-            for ind in similar_cal_sensors.index:
-                #print('Using cal sensor: ', similar_cal_sensors.Site_Code[ind])
-                v,a,h,por,res,drain,n,w = GetParameters_and_Weight_of_CalSensor(ind, similar_cal_sensors); cal_network = similar_cal_sensors.Network[ind]            
-                recent_site_data = site_data[(n*-1 -1):]; calc_depth = (2 if 'SCAN' in cal_network else 5)
-                #print('Parameters:', v,a,h,por,res,drain,n, "Depth: ", calc_depth, "Site-P (mm): ", np.sum(recent_site_data.P))                
-                adj_site_data = Precip.AdjustPrecipUnit(recent_site_data, 'P', (1/25.4 if 'SCAN' in cal_network else 1))
-                #print('Site-P, adjusted:', np.sum(adj_site_data.P))                
-                adj_site_data = CalculateSMEstimates(adj_site_data, [v,a,h,por,res,drain,n], calc_depth, 'SM', 'P', 'DOY')
-                theta_i_t_m = list(adj_site_data['SMest_' + str(calc_depth)])[-1];
-                #print('Model estimate using site precip:', theta_i_t_m)
-                new_site_data = local.very_deep_copy(recent_site_data) #to be manipulated in functions safely
-                new_site_data = ReplaceSitePrecipWSensorPrecip(new_site_data, insitu['site_data']['P'][:SM_ind], 'P', n)
-                #print('LocalSensor-P:', np.sum(new_site_data.P))
-                adj_fac = 25.4 if ('SCAN' in local_network and 'SCAN' not in cal_network) else 1
-                adj_site_data = Precip.AdjustPrecipUnit(new_site_data, 'P', adj_fac)
-                #print('LocalSensor-P:', np.sum(adj_site_data.P), "Depth:", calc_depth)
-                adj_site_data = CalculateSMEstimates(adj_site_data, [v,a,h,por,res,drain,n], calc_depth, 'SM', 'P', 'DOY')
-                theta_i_tstar_m = list(adj_site_data['SMest_' + str(calc_depth)])[-1]
-                #print('Model estimate using local sensor precip:', theta_i_tstar_m)
+            for ind, cal_network, site_code in zip(similar_cal_sensors.index, similar_cal_sensors.Network, similar_cal_sensors.Site_Code):
+                if site_code not in cal_sensor_info.keys(): cal_sensor_info[site_code] = {}; print('Using cal sensor: ', site_code)
+                if 'params_and_weight' not in cal_sensor_info[site_code].keys(): cal_sensor_info[site_code]['params_and_weight'] = GetParameters_and_Weight_of_CalSensor(ind, similar_cal_sensors) 
+                v,a,h,por,res,drain,n,w = cal_sensor_info[site_code]['params_and_weight']; key = 'recent_site_data_' + str(n)    
+                if key not in cal_sensor_info.keys(): cal_sensor_info[key] = site_data[(n*-1 -1):]                 
+                recent_site_data = cal_sensor_info[key]; calc_depth = (2 if 'SCAN' in cal_network else 5)
+                print('Parameters:', v,a,h,por,res,drain,n, "Depth: ", calc_depth, "Site-P (mm): ", np.sum(recent_site_data.P))                
+                adj_fac = (1 if 'ARS' in cal_network else round(1/25.4,3)); key = '_'.join(['adj_site_data', str(n), str(adj_fac)])                
+                if key not in cal_sensor_info.keys(): cal_sensor_info[key] = Precip.AdjustPrecipUnit(recent_site_data, 'P', adj_fac)
+                adj_site_data = cal_sensor_info[key]                
+                print('Site-P, adjusted:', np.sum(adj_site_data.P))
+                key = '_'.join(["SMest", str(calc_depth), 'at-site'])
+                if key not in cal_sensor_info[site_code].keys(): 
+                    adj_site_data = CalculateSMEstimates(adj_site_data, [v,a,h,por,res,drain,n], calc_depth, 'SM', 'P', 'DOY')                 
+                    cal_sensor_info[site_code][key] = list(adj_site_data['SMest_' + str(calc_depth)])[-1]
+                theta_i_t_m = cal_sensor_info[site_code][key]
+                print('Model estimate using site precip:', theta_i_t_m)
+                key = '_'.join(['Site, replaced with', sensor, str(n)])
+                if key not in cal_sensor_info.keys():
+                    new_site_data = local.very_deep_copy(recent_site_data) #to be manipulated in functions safely
+                    cal_sensor_info[key] = ReplaceSitePrecipWSensorPrecip(new_site_data, insitu['site_data']['P'][:SM_ind], 'P', n)
+                new_site_data = cal_sensor_info[key]    
+                print('LocalSensor-P:', np.sum(new_site_data.P))
+                adj_fac = GetAdjFac(local_network, cal_network); key = '_'.join(['Site, replaced with', sensor, str(n), 'adj', str(adj_fac)]) 
+                if key not in cal_sensor_info.keys(): cal_sensor_info[key] = Precip.AdjustPrecipUnit(new_site_data, 'P', adj_fac)
+                adj_site_data = cal_sensor_info[key]                
+                print('LocalSensor-P:', np.sum(adj_site_data.P), "Depth:", calc_depth)
+                key = '_'.join(['SMest', str(calc_depth), 'using_local', sensor])
+                if key not in cal_sensor_info[site_code].keys(): 
+                    adj_site_data = CalculateSMEstimates(adj_site_data, [v,a,h,por,res,drain,n], calc_depth, 'SM', 'P', 'DOY')
+                    cal_sensor_info[site_code][key] = list(adj_site_data['SMest_' + str(calc_depth)])[-1]
+                theta_i_tstar_m = cal_sensor_info[site_code][key]
+                print('Model estimate using local sensor precip:', theta_i_tstar_m)
                 estimates_by_model.append(theta_i_t_m - theta_i_tstar_m); model_weights.append(w)
             model_driven_adjustment = EstimateFromWeights(estimates_by_model, model_weights)
+            print("Model suggests location is:", model_driven_adjustment, "different from insitu")
             estimates_by_sensor.append(theta_i_tstar_s + model_driven_adjustment)
-    return estimates_by_sensor, local_sensor_inv_dist_sqs                  
+        else:
+            estimates_by_sensor.append(-99)
+    return estimates_by_sensor, local_sensor_inv_dist_sqs    
+
+def GetAdjFac(local_sensor_type, cal_sensor_type):
+    """When using the precipitation of a (local_sensor_type) insitu sensor at the location of a site 
+    where an estimate is needed, and parameters generated at a (cal_sensor_type) are employed, return a conversion
+    factor betweem the local_sensor's precip and the cal_sensor parameter's expected precip unit."""
+    if local_sensor_type == cal_sensor_type: #no need to adjust
+        return 1
+    elif local_sensor_type == 'ARS' and cal_sensor_type != 'ARS': #local sensor P is mm, but the model was calibrated based on in
+        return round(1/25.4,3)
+    elif local_sensor_type in ['SCAN', 'CRN'] and cal_sensor_type == 'ARS': #local senor P is inches, model calibrated in mm
+        return 25.4
+    else: #no need to adjust betweem 'CRN' and 'SCAN'
+        return 1           
         
 def ReplaceSitePrecipWSensorPrecip(new_site_data, p_series, p_col, n):
     """Given a (recent_site_data) frame from the location where SM estimates are desired, 
