@@ -43,7 +43,7 @@ def DownloadAllSCAN(site_codes, SCAN_url, SCAN_years):
             for month in range(1,13):
                 month_str = '0' + str(month) if month < 10 else str(month)
                 if not os.path.exists(os.path.join(str(site_code) + '_monthly_files', "_".join([str(site_code), str(year), str(month)]) + '.csv')):
-                    time.sleep(60)  # Delay for 1 minute (60 seconds)
+                    time.sleep(10)  # Delay for 10 seconds
                     r = request_SCAN_month_data_at_site(SCAN_url, str(site_code), str(year), month_str)
                     Write_Request_To_File(r, output_folder, str(site_code), str(year), str(month))
     return None
@@ -94,9 +94,10 @@ def GetSCANColumns(SCAN_df, SCAN_file_columns):
          else:
              matched_columns.append('DoesNotExist')
 	return matched_columns		
-	
+ 
 def ProcessSCAN_csv_file(SCAN_df, file_path):
 	month_f = pd.read_csv(file_path, skiprows = 3); previous_P = 0
+	if 'Date' not in month_f.columns: month_f = pd.read_csv(file_path, skiprows = 2) #cases of missing whitespace  
 	if type(month_f.Date[0]) != str: #empty file, no data...
          return SCAN_df    
 	else:
@@ -124,7 +125,10 @@ def GetSCANPrecip(month_f, p_columns, index, previous_P = 0):
         return P, P - previous_P
 
 def GenerateYear_and_DOY(SCAN_date, SCAN_time):
-    SCAN_datetime = dt.datetime.strptime(SCAN_date + ' ' + SCAN_time, '%Y-%m-%d %H:%M')
+    if '-' in SCAN_date:
+        SCAN_datetime = dt.datetime.strptime(SCAN_date + ' ' + SCAN_time, '%Y-%m-%d %H:%M')
+    else:
+        SCAN_datetime = dt.datetime.strptime(SCAN_date + ' ' + SCAN_time, '%m/%d/%Y %H:%M')        
     return SCAN_datetime.year, SCAN_datetime.timetuple().tm_yday + SCAN_datetime.hour/24 + SCAN_datetime.minute/1440
  
 if __name__ == "__main__":

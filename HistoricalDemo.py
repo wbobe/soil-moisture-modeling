@@ -54,12 +54,19 @@ def ProduceSiteData(local_precip_df, current_time, min_hours):
     L = len(site_data)
     site_data['SM'] = [0.1 for i in range(L)];  site_data['Invalid'] = [False for i in range(L)]
     return site_data
+    
+def GetLocalDict_w_LocalSensors(local_dict, similar_local_sensors):
+    new_dict = {}
+    for network, site_code in zip(similar_local_sensors.Network, similar_local_sensors.Site_Code):
+        local_key = network + "_" + site_code
+        new_dict[local_key] = local_dict[local_key]
+    return new_dict
             
 def GenerateEstimatesAtAllPoints(historical_requests, all_calibrated_sites, HAND_classes, texture_classes, output_file_name, depth, min_hours,
     last_time, num_hours, HAND_min_northing, HAND_min_easting, HAND_cellsize, HAND_nrows, HAND_ncols, hydro_class, zone, precip_dict):
     old_northing, old_easting, local_dict, precip_site_series, sm_estimates, topos, textures = -9999,-9999, {}, {}, [], [], []
-    for northing, easting, year, DOY in zip(historical_requests.Northing, historical_requests.Easting, historical_requests.Year, historical_requests.DOY):
-        print("Northing:", northing, "Easting:", easting, "Year:", year, "DOY:", DOY)        
+    for i, (northing, easting, year, DOY) in enumerate(zip(historical_requests.Northing, historical_requests.Easting, historical_requests.Year, historical_requests.DOY)):
+        print("Site#", i, "Northing:", northing, "Easting:", easting, "Year:", year, "DOY:", DOY)        
         if (northing != old_northing or easting != old_easting): #we need to re-determine texture/topo info
             lat, lon = SPF.UTMtoLL(23, northing, easting, zone) 
             topo_class = HAND.GetHANDClassAtPoint(HAND_classes, northing, easting, HAND_min_northing, HAND_min_easting, 
@@ -74,12 +81,13 @@ def GenerateEstimatesAtAllPoints(historical_requests, all_calibrated_sites, HAND
         if location_key not in precip_site_series.keys():
             precip_site_series[location_key] = Precip.ReturnPrecipitationSeries_InSitu(northing, easting, precip_dict, 'P', last_time, num_hours)
         site_data = ProduceSiteData(precip_site_series[location_key], current_time, min_hours)    
-        sm_estimates.append(SM.ProduceSMEstimateUsingInSituAndModel(similar_cal_sensors, local_dict, northing, easting, depth, site_data, current_time))
+        sm_estimates.append(SM.ProduceSMEstimateUsingInSituAndModel(similar_cal_sensors, GetLocalDict_w_LocalSensors(local_dict, similar_local_sensors), 
+                                                                    northing, easting, depth, site_data, current_time))
         topos.append(topo_class); textures.append(texture_class)        
         old_northing, old_easting = northing, easting #update the values
     historical_requests['SMest_' + str(depth)] = sm_estimates; historical_requests['Topo'] = topos; historical_requests['Texture'] = textures 
     historical_requests.to_csv(os.path.join(os.environ['path_to_historical_requests'], 'HistoricalResults', output_file_name + '.csv'), index = False)
-    return sm_estimates    
+    return historical_requests    
 
 if __name__ == "__main__":
     null, historical_request_file_name, output_file_name, HAND_name, texture_json_name, zone, hydro_class = sys.argv
@@ -93,5 +101,5 @@ if __name__ == "__main__":
     last_time, num_hours = GetHistoricalTemporalScale(historical_requests, 'Year', 'DOY', _min_hours)
     precip_dict = Precip.GeneratePrecipSeriesDictionary(local_precip_sensors, 'P', 'Year', 'DOY', num_hours, last_time, os.environ['path_to_local_sensors'])
     
-    sm_estimates = GenerateEstimatesAtAllPoints(historical_requests, all_calibrated_sites, HAND_classes, texture_classes, output_file_name, _depth_cm, 
+    historical_requests = GenerateEstimatesAtAllPoints(historical_requests, all_calibrated_sites, HAND_classes, texture_classes, output_file_name, _depth_cm, 
     _min_hours, last_time, num_hours, HAND_min_northing, HAND_min_easting, HAND_cellsize, nrows, ncols, hydro_class, zone, precip_dict)
