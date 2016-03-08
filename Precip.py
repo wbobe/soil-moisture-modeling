@@ -24,17 +24,20 @@ def ReturnPrecipitationSeries_InSitu(northing, easting, precip_dict, p_col, curr
     """Using the existing (local_sensors) dictionary, the column name for precipitation in each site's data frame (p_col), 
     the (current_timestamp) in datetime format, and the number of timestamps to look back, return the precipitation time series, 
     at a (northing), (easting) along with years, and days-of-years in a dataframe."""
-    p_northings, p_eastings = [],[]
+    p_northings, p_eastings, key_list = [],[],[]
     for key in precip_dict.keys():
-        p_northings.append(precip_dict[key]['Northing']); p_eastings.append(precip_dict[key]['Easting'])
+        p_northings.append(precip_dict[key]['Northing']); p_eastings.append(precip_dict[key]['Easting']); key_list.append(key)
     p_weights = GetPrecipWeights(p_northings, p_eastings, northing, easting)
-    last_P_ind = GetLastPrecipInd(precip_dict[key]['precip_df'], current_timestamp, 'Year', 'DOY')
+    last_P_ind = GetLastPrecipInd(precip_dict[key][p_col + '_df'], current_timestamp, 'Year', 'DOY')
     first_P_ind = max(0, last_P_ind - num_timestamps)
     precip_list, years, DOYs = [], [], []
     for p_ind in range(first_P_ind, last_P_ind):
-        precip_list.append(np.sum([w*max(precip_dict[k]['precip_df'][p_col][p_ind],0) for w,k in zip(p_weights, precip_dict.keys())]))
-        years.append(precip_dict[key]['precip_df']['Year'][p_ind]); DOYs.append(precip_dict[key]['precip_df']['DOY'][p_ind]);
-    return pd.DataFrame({'P':precip_list, 'Year':years, 'DOY':DOYs})
+        current_Ps = [precip_dict[k][p_col + '_df'][p_col][p_ind] for k in key_list]
+        weights = [(w if p >= 0 else 0) for w,p in zip(p_weights, current_Ps)]; sum_weights = np.sum(weights)
+        precip_list.append(np.sum([w*1.0*p/sum_weights for w,p in zip(weights, current_Ps)]))
+        #precip_list.append(np.sum([w*max(precip_dict[k][p_col + '_df'][p_col][p_ind],0) for w,k in zip(p_weights, precip_dict.keys())]))
+        years.append(precip_dict[key][p_col + '_df']['Year'][p_ind]); DOYs.append(precip_dict[key][p_col + '_df']['DOY'][p_ind]);
+    return pd.DataFrame({p_col:precip_list, 'Year':years, 'DOY':DOYs})
     
 def GetPrecipWeights(p_northings, p_eastings, northing, easting):
     p_distances = [max((n - northing)**2 + (e - easting)**2,1000) for n,e in zip (p_northings, p_eastings)]
@@ -59,7 +62,7 @@ def GeneratePrecipSeriesDictionary(local_precip_sensors, p_col, year_col, DOY_co
             precip_dict[key]['Northing'] = northing; precip_dict[key]['Easting'] = easting
             Ps, DOYs = [p*p_fac for p in sensor_df[p_col][first_P_ind: last_P_ind + 1]], [DOY for DOY in sensor_df[DOY_col][first_P_ind: last_P_ind + 1]]            
             Years = [p*p_fac for p in sensor_df[year_col][first_P_ind: last_P_ind + 1]]   
-            precip_df = pd.DataFrame({"P":Ps, "DOY":DOYs, "Year":Years}); precip_dict[key]['precip_df'] = precip_df   
+            precip_df = pd.DataFrame({p_col:Ps, "DOY":DOYs, "Year":Years}); precip_dict[key][p_col + '_df'] = precip_df   
     return precip_dict
     
 def GetLastPrecipInd(sensor_df, last_time, year_col, DOY_col):

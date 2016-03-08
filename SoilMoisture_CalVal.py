@@ -11,6 +11,7 @@ import sys
 import pandas as pd
 import numpy as np
 import math
+import datetime as dt
 from scipy.stats.stats import pearsonr
 import GeneticAlgorithms_for_SM as GA
 import HydroclimaticClassification as HydroClass
@@ -326,6 +327,25 @@ def EstimateFromWeights(sm_estimates, weights):
     total_weight = np.sum(weights_of_valid_sm)
     return np.sum([sm * w/total_weight for sm,w in zip(valid_sms, weights_of_valid_sm)])      
 
+def GetAllLocalSensors(sm_dict, northing, easting, current_time):
+    """Given a dictionary of local soil moisture sensors (sm_dict), each of which has a key for northing, easting,
+    and a soil moisture data frame with SM, DOY, and Year...at a (current_time), a datetime value, and (northing),
+    (easting) coordinate, return the nearest soil moisture value from all active sensors."""
+    current_SM_dict = {"sm_sensor" : [], "dist" : [], "sm_val" : []}; SM_ind = -99
+    for sensor in sm_dict.keys():
+        if SM_ind < -1: SM_ind = Precip.GetLastPrecipInd(sm_dict[sensor]['SM_df'], current_time, 'Year', 'DOY')  #only need this once      
+        current_SM_dict['sm_sensor'].append(sensor); current_SM_dict['sm_val'].append(sm_dict[sensor]['SM_df']['SM'][SM_ind])
+        current_SM_dict['dist'].append(math.sqrt((sm_dict[sensor]['Northing'] - northing)**2 + (sm_dict[sensor]['Easting'] - easting)**2))
+    return pd.DataFrame(current_SM_dict)
+    
+def GetClosestSensorValue(active_sensors, value_col, distance_col, sensor_col):
+    """Given a dictionary of active local soil moisture sensors, or other features (active_sensors), at a given time, return 
+    the nearest soil moisture value as defined by (distance_col), or other value given by (value_col) from an active sensor."""
+    active_sensors = active_sensors.sort(distance_col)
+    for sensor, value, dist in zip(active_sensors[sensor_col], active_sensors[value_col], active_sensors[distance_col]):
+        if value > 0: return sensor, value, dist
+    return 'None', -99, 99999
+
 def EvaluateModelPerformance(sm_observed, sm_modelled, max_sm, min_sm):
 	"""Given two vectors for observed and modelled soil moisture, (sm_observed) and (sm_modelled), 
 	crop them such that we consider only pairs where both values are non-negative. Then, return 
@@ -341,9 +361,9 @@ def EvaluateModelPerformance(sm_observed, sm_modelled, max_sm, min_sm):
 	offset = np.mean(sm_model) - np.mean(sm_obs) #best offset, with no gain involved
 	rho, RMSE_off = GetCorr_and_RMSE(sm_obs + offset, sm_model)
 	xi = np.array(sm_obs); A,y = np.array([xi, np.ones(len(sm_obs))]), np.array(sm_model) #prepping the regression
-	if len(sm_obs) < 2: return(-1,-1,-1,-1,-1,-1)
+	if len(sm_obs) < 2: return(-1,-1,-1,-1,-1,-1,-1)
 	w = np.linalg.lstsq(A.T,y)[0] #the gain, the offset as the two returned elements of this function
-	if abs(w[0]) >= 100 or abs(w[1]) >= 100: return(-1,-1,-1,-1,-1,-1) #fixes the degenerate case when SM from AMSR doesn't vary...thus no rho
+	if abs(w[0]) >= 100 or abs(w[1]) >= 100: return(-1,-1,-1,-1,-1,-1,-1) #fixes the degenerate case when SM from AMSR doesn't vary...thus no rho
 	line = w[0]*xi+w[1];  rho, RMSE_all = GetCorr_and_RMSE(line,y)
 	heuristic = rho - (RMSE_base)/(max_sm - min_sm)     
 	return (rho, RMSE_base, RMSE_off, RMSE_all, offset, w, heuristic)          
