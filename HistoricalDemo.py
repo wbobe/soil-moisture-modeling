@@ -6,7 +6,6 @@ Created on Wed Feb 17 19:06:29 2016
 Historical Demo module capable of generating estimates over a space incorporating:
 Local Sensors, Non-Local Sensors, Calibrated Models, Topo, Texture, HydroClasses
 """
-import Env
 import os
 import sys
 import numpy as np

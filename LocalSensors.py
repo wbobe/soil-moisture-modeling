@@ -5,7 +5,6 @@ Created on Thu Jan  7 09:04:58 2016
 
 Accesses, processes, and incorporates information from local in situ resources
 """
-import Env
 import os
 import json
 import datetime as dt

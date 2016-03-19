@@ -5,7 +5,6 @@ Created on Tue Dec  1 09:47:08 2015
 
 Functions herein allow calibration and validation of soil moisture models
 """
-import Env
 import os
 import sys
 import pandas as pd
