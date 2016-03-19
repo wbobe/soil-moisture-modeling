@@ -196,7 +196,6 @@ def ReturnUniqueList(seq, keepstr=True):
 
 if __name__ == "__main__":
     null, historical_request_file_name, output_file_name, HAND_name, texture_json_name, zone, hydro_class = sys.argv
-    Env.AddEnvironmentVariables() #gather environment variables
     HAND_min_northing, HAND_min_easting, HAND_cellsize, nrows, ncols = HAND.GetHandFileInfo(HAND_name)
     similar_class_map, similar_texture_map, similar_topo_map = SM.GetSimilarClassesAndTextures()    
     historical_requests, all_calibrated_sites, HAND_classes, texture_classes = GetBackgroundInformation(historical_request_file_name,

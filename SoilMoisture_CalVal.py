@@ -376,7 +376,6 @@ if __name__ == "__main__":
     #users input lat/lon, from there we should theoretically know: 
     #hydroclimatic_class, topo_class, and texture_class
     null, northing, easting = sys.argv 
-    Env.AddEnvironmentVariables() #gather environment variables
     northing, easting, zone, hydroclimatic_class, topo_class, texture_class = 3510000, 590000, '12R', 'IAQ', 2, 6 #FOR TEST PURPOSES
         
     lat, lon = SPF.UTMtoLL(23, northing, easting, zone)
@@ -412,4 +411,4 @@ if __name__ == "__main__":
     #Evaluate a model's performance against observations
     (rho, RMSE_base, RMSE_off, RMSE_all, offset, w, heuristic) = EvaluateModelPerformance(site_data.SM, 
         site_data.SMest_5, np.max(site_data.SM), np.min(site_data.SM))
-    
+
